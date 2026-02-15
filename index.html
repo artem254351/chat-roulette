@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Online Video Roulette</title>
+<script>
+let socket = new WebSocket("ws://192.168.1.100:8765"); // IP сервера
+</script>
+<style>
+body{margin:0;font-family:sans-serif;background:#f3f3f3;text-align:center;}
+video{width:90%;max-width:600px;border-radius:15px;background:black;margin-top:10px;}
+.controls button{padding:10px;margin:5px;border:none;border-radius:10px;background:#4f46e5;color:white;}
+</style>
+</head>
+<body>
+
+<h2>🌍 Online Video Roulette</h2>
+
+Возраст:
+<input type="number" id="age" min="0" max="100" value="18">
+
+Пол:
+<select id="gender">
+<option value="male">Мужчина</option>
+<option value="female">Женщина</option>
+<option value="other">Другое</option>
+</select>
+
+<br>
+
+<video id="remoteVideo" autoplay playsinline></video>
+<video id="localVideo" autoplay muted playsinline></video>
+
+<div class="controls">
+<button onclick="startCamera()">📷 Камера</button>
+<button onclick="find()">🔍 Найти</button>
+</div>
+
+<script>
+const socket = io();
+let localStream;
+let peer;
+
+async function startCamera(){
+localStream = await navigator.mediaDevices.getUserMedia({video:true,audio:true});
+document.getElementById("localVideo").srcObject = localStream;
+}
+
+function createPeer(){
+peer = new RTCPeerConnection({
+iceServers:[
+{urls:"stun:stun.l.google.com:19302"}
+]
+});
+
+localStream.getTracks().forEach(track=>peer.addTrack(track,localStream));
+
+peer.onicecandidate=e=>{
+if(e.candidate){
+socket.emit("signal",{candidate:e.candidate});
+}
+};
+
+peer.ontrack=e=>{
+document.getElementById("remoteVideo").srcObject=e.streams[0];
+};
+
+socket.on("signal", async data=>{
+if(data.offer){
+await peer.setRemoteDescription(new RTCSessionDescription(data.offer));
+const answer=await peer.createAnswer();
+await peer.setLocalDescription(answer);
+socket.emit("signal",{answer});
+}
+if(data.answer){
+await peer.setRemoteDescription(new RTCSessionDescription(data.answer));
+}
+if(data.candidate){
+await peer.addIceCandidate(new RTCIceCandidate(data.candidate));
+}
+});
+}
+
+function find(){
+let age=parseInt(document.getElementById("age").value);
+socket.emit("find",{age:age,gender:document.getElementById("gender").value});
+}
+
+socket.on("matched", async ()=>{
+createPeer();
+const offer=await peer.createOffer();
+await peer.setLocalDescription(offer);
+socket.emit("signal",{offer});
+});
+</script>
+
+</body>
+</html>
